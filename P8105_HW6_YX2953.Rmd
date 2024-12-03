@@ -16,8 +16,86 @@ library(broom)
 library(knitr)
 library(modelr)
 library(rsample)
+library(p8105.datasets)
 ```
 
+Problem 1
+
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+
+```{r}
+bootstrap_results <- weather_df %>%
+  modelr::bootstrap(n = 5000) %>%
+  mutate(
+    models = map(strap, \(df) lm(tmax ~ tmin + prcp, data = df)),
+    summary = map(models, broom::glance),
+    results = map(models, broom::tidy)) %>%
+  select(-models) %>%
+  unnest(summary, results) %>% 
+  select(id = .id, r.squared, term, estimate) %>% 
+  pivot_wider(
+    names_from = term,
+    values_from = estimate) %>% 
+  mutate(
+    abs_prcp = abs(prcp),
+    log_b1b2 = log(tmin * abs_prcp)
+  ) %>% 
+  select(id, r.squared, log_b1b2)
+```
+
+```{r}
+bootstrap_results %>%
+  ggplot(aes(x = r.squared)) + geom_density() + 
+  labs(title = "Distribution of estimated r square")
+
+LB_r = bootstrap_results %>% 
+  pull(r.squared) %>%
+  quantile(0.025)
+UB_r =bootstrap_results %>%
+  pull(r.squared) %>%
+  quantile(0.975)
+
+c(LB_r, UB_r)%>%
+  knitr::kable(digits = 3)
+```
+The distribution shows a mild left-skew with its center approximately at 0.918. The lower and upper bounds of its 95% confidence interval, marked by the 2.5% and 97.5% quantiles, are `r LB_r |> round(3)` and `r UB_r |> round(3)`. This interval can be denoted as (`r LB_r |> round(3)`, `r UB_r |> round(3)`).
+
+
+```{r}
+bootstrap_results %>%
+  filter(log_b1b2 != "NaN") %>%
+  ggplot(aes(x = log_b1b2)) + geom_density() + labs(title = "Distribution of estimated log(beta1 * beta2)")
+
+LB_b = bootstrap_results %>%
+  filter(log_b1b2 != "NaN") %>%
+  pull(log_b1b2) %>%
+  quantile(0.025)
+
+UB_b =bootstrap_results %>%
+  filter(log_b1b2 != "NaN") %>% 
+  pull(log_b1b2) %>%
+  quantile(0.975)
+
+c(LB_b, UB_b) %>%
+  knitr::kable(digits = 3)
+```
+
+The distribution of is a left-skew, centering around -5.5. The distribution's 2.5% and 97.5% quantiles are `r LB_b |> round(3)` and `r UB_b |> round(3)`, respectively, defining a 95% confidence interval represented as (`r LB_b |> round(3)`, `r UB_b |> round(3)`).
+
+Problem 2
 
 ```{r}
 # Load and clean data
